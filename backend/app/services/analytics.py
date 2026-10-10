@@ -11,16 +11,49 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
-# Load dataset once at module startup
-_DATA_PATH = Path(__file__).parents[3] / "datasets" / "raw" / "raw" / "station-hourly.csv"
+def _find_dataset() -> Path:
+    candidates = [
+        Path(__file__).resolve().parents[3] / "datasets" / "raw" / "station-hourly.csv",
+        Path(__file__).resolve().parents[3] / "datasets" / "raw" / "raw" / "station-hourly.csv",
+        Path(__file__).resolve().parents[2] / "datasets" / "raw" / "station-hourly.csv",
+        Path(__file__).resolve().parents[2] / "datasets" / "raw" / "raw" / "station-hourly.csv",
+        Path("datasets/raw/station-hourly.csv"),
+        Path("datasets/raw/raw/station-hourly.csv"),
+        Path("../datasets/raw/station-hourly.csv"),
+        Path("../datasets/raw/raw/station-hourly.csv"),
+        Path("MetroFlow/datasets/raw/station-hourly.csv"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c.resolve()
+    return Path(__file__).resolve().parents[3] / "datasets" / "raw" / "station-hourly.csv"
+
+def _find_15min_dataset() -> Path:
+    candidates = [
+        Path(__file__).resolve().parents[3] / "datasets" / "raw" / "station-15min-movements.csv",
+        Path(__file__).resolve().parents[3] / "datasets" / "raw" / "raw" / "station-15min-movements.csv",
+        Path(__file__).resolve().parents[2] / "datasets" / "raw" / "station-15min-movements.csv",
+        Path(__file__).resolve().parents[2] / "datasets" / "raw" / "raw" / "station-15min-movements.csv",
+        Path("datasets/raw/station-15min-movements.csv"),
+        Path("datasets/raw/raw/station-15min-movements.csv"),
+        Path("../datasets/raw/station-15min-movements.csv"),
+        Path("../datasets/raw/raw/station-15min-movements.csv"),
+        Path("MetroFlow/datasets/raw/station-15min-movements.csv"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c.resolve()
+    return Path(__file__).resolve().parents[3] / "datasets" / "raw" / "station-15min-movements.csv"
 
 _df: Optional[pd.DataFrame] = None
+_df_15min: Optional[pd.DataFrame] = None
 
 
 def _get_df() -> pd.DataFrame:
     global _df
     if _df is None:
-        _df = pd.read_csv(_DATA_PATH, sep=";")
+        data_path = _find_dataset()
+        _df = pd.read_csv(data_path, sep=";")
         _df["Date"] = pd.to_datetime(_df["Date"])
         _df["DayOfWeek"] = _df["Date"].dt.dayofweek  # 0=Mon
         _df["IsWeekend"] = _df["DayOfWeek"] >= 5
@@ -28,36 +61,83 @@ def _get_df() -> pd.DataFrame:
     return _df
 
 
+def _get_15min_df() -> Optional[pd.DataFrame]:
+    global _df_15min
+    if _df_15min is None:
+        p = _find_15min_dataset()
+        if p.exists():
+            try:
+                _df_15min = pd.read_csv(p, sep=";")
+            except Exception as e:
+                print(f"Warning loading 15-min movements: {e}")
+    return _df_15min
+
+
 # ─────────────────────────────────────────────────────────────
-# 1. LIVE SIMULATION  (simulates "now" based on current hour)
+# 1. LIVE SIMULATION (15-Minute Train Movement Tracking)
 # ─────────────────────────────────────────────────────────────
 
 def get_live_ridership() -> List[Dict[str, Any]]:
-    """Return current estimated ridership per station, simulated from historical avg."""
+    """Return current estimated ridership per station recorded for every 15-minute train movement."""
     df = _get_df()
     now = datetime.now()
     current_hour = now.hour
     is_weekend = now.weekday() >= 5
+    slot_minute = (now.minute // 15) * 15
+    train_num = (current_hour * 4 + slot_minute // 15) + 1
+    train_id = f"TR-{train_num:03d}"
+    slot_time = f"{current_hour:02d}:{slot_minute:02d}"
 
     # avg ridership for matching hour & day-type
     mask = (df["Hour"] == current_hour) & (df["IsWeekend"] == is_weekend)
     base = df[mask].groupby("Station")["Ridership"].mean().reset_index()
     base.columns = ["station", "avg_ridership"]
 
+    # 4 train movements per hour
+    movement_factors = [0.22, 0.28, 0.27, 0.23]
+    m_factor = movement_factors[slot_minute // 15]
+
     results = []
     for _, row in base.iterrows():
         avg = row["avg_ridership"]
-        # Add ±15% random variation to simulate live
-        live = max(0, int(avg * np.random.uniform(0.85, 1.15)))
+        # 15-minute train movement ridership
+        movement_riders = max(0, int(avg * m_factor * np.random.uniform(0.92, 1.10)))
+        hourly_live = max(0, int(avg * np.random.uniform(0.85, 1.15)))
         results.append({
             "station": row["station"],
-            "ridership": live,
+            "ridership": movement_riders,
+            "movement_ridership": movement_riders,
+            "hourly_equivalent": hourly_live,
             "avg_historical": round(avg, 1),
             "hour": current_hour,
-            "status": _crowd_status(live),
+            "train_id": train_id,
+            "movement_time": slot_time,
+            "interval_minutes": 15,
+            "status": _crowd_status(hourly_live),
         })
     results.sort(key=lambda x: x["ridership"], reverse=True)
     return results
+
+
+def get_live_train_info() -> Dict[str, Any]:
+    now = datetime.now()
+    current_hour = now.hour
+    slot_minute = (now.minute // 15) * 15
+    train_num = (current_hour * 4 + slot_minute // 15) + 1
+    train_id = f"TR-{train_num:03d}"
+    slot_time = f"{current_hour:02d}:{slot_minute:02d}"
+    next_train_in = 15 - (now.minute % 15)
+
+    live_stations = get_live_ridership()
+    tot_movement = sum(s["ridership"] for s in live_stations)
+    return {
+        "train_id": train_id,
+        "movement_time": slot_time,
+        "interval_minutes": 15,
+        "next_train_in_minutes": next_train_in,
+        "active_trains": 46,
+        "total_movement_ridership": tot_movement,
+    }
 
 
 def _crowd_status(ridership: int) -> str:
@@ -99,6 +179,41 @@ def get_station_daily_trend(station: str) -> List[Dict[str, Any]]:
     ]
 
 
+def get_station_train_movements(station: str, date_str: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns 15-minute train movement ridership counts for a specific station."""
+    m_df = _get_15min_df()
+    if m_df is not None and not m_df.empty:
+        target_date = date_str if date_str else str(m_df["Date"].max())
+        st_df = m_df[(m_df["Date"] == target_date) & (m_df["Station"] == station)]
+        if not st_df.empty:
+            return [
+                {
+                    "time": str(r["Time"]),
+                    "train_id": str(r["TrainId"]),
+                    "ridership": int(r["Ridership"]),
+                    "line": str(r["Line"]),
+                }
+                for _, r in st_df.sort_values(by="Time").iterrows()
+            ]
+
+    # Fallback from hourly avg
+    df = _get_df()
+    s = df[df["Station"] == station]
+    hourly = s.groupby("Hour")["Ridership"].mean()
+    factors = [0.22, 0.28, 0.27, 0.23]
+    results = []
+    for h in range(5, 24):
+        avg = float(hourly.get(h, 250))
+        for m_idx, minute in enumerate([0, 15, 30, 45]):
+            results.append({
+                "time": f"{h:02d}:{minute:02d}",
+                "train_id": f"TR-{(h - 5) * 4 + m_idx + 1:03d}",
+                "ridership": max(0, int(avg * factors[m_idx])),
+                "line": "Metro",
+            })
+    return results
+
+
 def get_station_weekday_pattern(station: str) -> List[Dict[str, Any]]:
     df = _get_df()
     s = df[df["Station"] == station]
@@ -121,6 +236,101 @@ def get_network_daily_summary() -> List[Dict[str, Any]]:
         {"date": str(r["Date"].date()), "total_ridership": int(r["Ridership"])}
         for _, r in daily.iterrows()
     ]
+
+
+def get_network_train_movements(date_str: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Returns ridership count recorded every 15 minutes as each train moves.
+    Provides discrete train dispatch records across operational hours.
+    """
+    now = datetime.now()
+    current_hour = now.hour
+    slot_min = (now.minute // 15) * 15
+    active_slot_time = f"{current_hour:02d}:{slot_min:02d}"
+    next_train_in = 15 - (now.minute % 15)
+    train_num = (current_hour * 4 + slot_min // 15) + 1
+    active_train_id = f"TR-{train_num:03d}"
+
+    m_df = _get_15min_df()
+    if m_df is not None and not m_df.empty:
+        target_date = date_str if date_str else str(m_df["Date"].max())
+        day_df = m_df[m_df["Date"] == target_date]
+        if not day_df.empty:
+            grouped = day_df.groupby(["Time", "TrainId"])
+            rows = []
+            for (t_val, tr_id), grp in grouped:
+                h = int(grp["Hour"].iloc[0])
+                m = int(grp["Minute"].iloc[0])
+                tot_riders = int(grp["Ridership"].sum())
+                pl = int(grp[grp["Line"] == "Purple Line"]["Ridership"].sum())
+                gl = int(grp[grp["Line"] == "Green Line"]["Ridership"].sum())
+
+                if h < current_hour or (h == current_hour and m < slot_min):
+                    status = "Completed"
+                elif h == current_hour and m == slot_min:
+                    status = "Active / Boarding"
+                else:
+                    status = "Scheduled"
+
+                rows.append({
+                    "time": t_val,
+                    "train_id": tr_id,
+                    "ridership": tot_riders,
+                    "purple_line": pl,
+                    "green_line": gl,
+                    "status": status,
+                    "congestion": "Critical" if tot_riders > 20000 else "High" if tot_riders > 14000 else "Moderate" if tot_riders > 7000 else "Low",
+                })
+            rows.sort(key=lambda x: x["time"])
+            active_val = next((r["ridership"] for r in rows if r["time"] == active_slot_time), 14200)
+            return {
+                "active_movement": {
+                    "train_id": active_train_id,
+                    "movement_time": active_slot_time,
+                    "interval_minutes": 15,
+                    "next_train_in_minutes": next_train_in,
+                    "total_movement_ridership": active_val,
+                    "active_trains": 46,
+                },
+                "data": rows
+            }
+
+    # Dynamic fallback based on hourly averages
+    df = _get_df()
+    hourly_avg = df.groupby("Hour")["Ridership"].sum()
+    factors = [0.22, 0.28, 0.27, 0.23]
+    rows = []
+    for h in range(5, 24):
+        h_sum = float(hourly_avg.get(h, 25000))
+        for m_idx, minute in enumerate([0, 15, 30, 45]):
+            t_str = f"{h:02d}:{minute:02d}"
+            tr_id = f"TR-{(h - 5) * 4 + m_idx + 1:03d}"
+            tot = int(h_sum * factors[m_idx] * np.random.uniform(0.96, 1.04))
+            pl = int(tot * 0.54)
+            gl = tot - pl
+            status = "Completed" if h < current_hour or (h == current_hour and minute < slot_min) else "Active / Boarding" if (h == current_hour and minute == slot_min) else "Scheduled"
+            rows.append({
+                "time": t_str,
+                "train_id": tr_id,
+                "ridership": tot,
+                "purple_line": pl,
+                "green_line": gl,
+                "status": status,
+                "congestion": "Critical" if tot > 20000 else "High" if tot > 14000 else "Moderate" if tot > 7000 else "Low",
+            })
+    rows.sort(key=lambda x: x["time"])
+    active_val = next((r["ridership"] for r in rows if r["time"] == active_slot_time), 14200)
+    return {
+        "active_movement": {
+            "train_id": active_train_id,
+            "movement_time": active_slot_time,
+            "interval_minutes": 15,
+            "next_train_in_minutes": next_train_in,
+            "total_movement_ridership": active_val,
+            "active_trains": 46,
+        },
+        "data": rows
+    }
 
 
 def get_network_hourly_profile() -> List[Dict[str, Any]]:

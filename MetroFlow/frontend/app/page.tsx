@@ -1,495 +1,316 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { Train, RefreshCw, Users, Activity, Clock } from "lucide-react";
+import {
+  api,
+  AnalyticsSummary,
+  WeatherSummary,
+  CongestionResponse,
+} from "./lib/api";
+import { PURPLE, BLUE, ORANGE, RED, STATUS_COLOR } from "./lib/constants";
+import { Anomaly, DailyRidershipPoint, ForecastPoint, HourlyRidershipPoint, Insight, LineComparisonPoint, StationRidershipPoint, TopStationPoint, ActiveTrainMovement, TrainMovementPoint } from "./lib/types";
 
-type PredictionResponse = {
-  station: string;
-  hour: number;
-  current_ridership: number;
-  predicted_next_hour_ridership: number;
-  crowd_level: string;
-  recommendation: string;
-};
+// UI Components
+import StatCard from "./components/ui/StatCard";
+import Skeleton from "./components/ui/Skeleton";
+import ErrorBanner from "./components/ui/ErrorBanner";
 
-type AnalyticsResponse = {
-  total_ridership: number;
-  total_stations: number;
-  busiest_station: string;
-  peak_hour: number;
-};
+// Chart Components
+import NetworkDailyChart from "./components/charts/NetworkDailyChart";
+import NetworkHourlyChart from "./components/charts/NetworkHourlyChart";
+import LineComparisonChart from "./components/charts/LineComparisonChart";
+import TopStationsChart from "./components/charts/TopStationsChart";
+import ForecastChart from "./components/charts/ForecastChart";
+import CrowdDistributionChart from "./components/charts/CrowdDistributionChart";
+import HeatmapChart from "./components/charts/HeatmapChart";
 
-type WeatherResponse = {
-  average_temperature: number;
-  average_humidity: number;
-  total_rainfall: number;
-  average_wind_speed: number;
-};
-
-type StationCongestion = {
-  station: string;
-  ridership: number;
-  congestion_level: string;
-};
-
-type CongestionResponse = {
-  date: string;
-  hour: number;
-  total_stations: number;
-  stations: StationCongestion[];
-};
+// Dashboard Components
+import PredictionPanel from "./components/dashboard/PredictionPanel";
+import CongestionMatrix from "./components/dashboard/CongestionMatrix";
+import StationDeepDive from "./components/dashboard/StationDeepDive";
+import PeakAnalysis from "./components/dashboard/PeakAnalysis";
+import InsightsPanel from "./components/dashboard/InsightsPanel";
+import WeatherPanel from "./components/dashboard/WeatherPanel";
+import StationManager from "./components/dashboard/StationManager";
 
 export default function Home() {
-  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
-  const [weather, setWeather] = useState<WeatherResponse | null>(null);
+  // Data States
+  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+  const [weather, setWeather] = useState<WeatherSummary | null>(null);
   const [congestionData, setCongestionData] = useState<CongestionResponse | null>(null);
-  const [congestionLoading, setCongestionLoading] = useState(false);
-  const [congestionError, setCongestionError] = useState("");
-  const [filterLevel, setFilterLevel] = useState<string>("ALL");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [liveData, setLiveData] = useState<StationRidershipPoint[]>([]);
+  const [trainMovements, setTrainMovements] = useState<TrainMovementPoint[]>([]);
+  const [activeMovement, setActiveMovement] = useState<ActiveTrainMovement | null>(null);
+  const [networkDaily, setNetworkDaily] = useState<DailyRidershipPoint[]>([]);
+  const [networkHourly, setNetworkHourly] = useState<HourlyRidershipPoint[]>([]);
+  const [topStations, setTopStations] = useState<TopStationPoint[]>([]);
+  const [lineData, setLineData] = useState<LineComparisonPoint[]>([]);
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [forecast, setForecast] = useState<ForecastPoint[]>([]);
+  const [stationList, setStationList] = useState<string[]>([]);
+  
+  // App States
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Navigation State
+  const [activeTab, setActiveTab] = useState("Dashboard");
+  const [selectedStation, setSelectedStation] = useState<string>("");
+  const tabs = ["Dashboard", "Analytics", "Stations", "AI Intelligence"];
 
-  const [result, setResult] = useState<PredictionResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [station, setStation] = useState("Attiguppe");
-  const [hour, setHour] = useState(18);
-  const [dayOfWeek, setDayOfWeek] = useState(1);
-  const [currentRidership, setCurrentRidership] = useState(100);
-
-  useEffect(() => {
-    const fetchAnalytics = async () => {
-      try {
-        const response = await fetch("http://127.0.0.1:8000/analytics");
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch analytics");
-        }
-
-        const data: AnalyticsResponse = await response.json();
-        setAnalytics(data);
-      } catch (err) {
-        console.error("Analytics fetch error:", err);
-      }
-    };
-
-    const fetchWeather = async () => {
-      try {
-        const response = await fetch(
-          "http://127.0.0.1:8000/weather-summary"
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch weather");
-        }
-
-        const data: WeatherResponse = await response.json();
-        setWeather(data);
-      } catch (err) {
-        console.error("Weather fetch error:", err);
-      }
-    };
-
-    const fetchCongestion = async () => {
-      setCongestionLoading(true);
-      setCongestionError("");
-      try {
-        const response = await fetch("http://127.0.0.1:8000/stations/congestion");
-        if (!response.ok) {
-          throw new Error("Failed to fetch station congestion data");
-        }
-        const data: CongestionResponse = await response.json();
-        setCongestionData(data);
-      } catch (err) {
-        console.error("Congestion fetch error:", err);
-        setCongestionError("Unable to connect to station congestion API.");
-      } finally {
-        setCongestionLoading(false);
-      }
-    };
-
-    fetchAnalytics();
-    fetchWeather();
-    fetchCongestion();
-  }, []);
-
-  const predictRidership = async () => {
-    setLoading(true);
-    setError("");
-    setResult(null);
-
+  const loadData = useCallback(async () => {
+    setError(null);
     try {
-      const response = await fetch("http://127.0.0.1:8000/predict", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          station,
-          hour,
-          day_of_week: dayOfWeek,
-          current_ridership: currentRidership,
-        }),
-      });
+      const [
+        sumRes,
+        weaRes,
+        congRes,
+        liveRes,
+        movRes,
+        dailyRes,
+        hourlyRes,
+        topRes,
+        lineRes,
+        insRes,
+        anoRes,
+        foreRes,
+        stRes,
+      ] = await Promise.allSettled([
+        api.getAnalyticsSummary(),
+        api.getWeatherSummary(),
+        api.getStationCongestion(),
+        api.getLive(),
+        api.getTrainMovements(),
+        api.getNetworkDaily(),
+        api.getNetworkHourly(),
+        api.getTopStations(10),
+        api.getLineComparison(),
+        api.getInsights(),
+        api.getAnomalies(),
+        api.getForecast(),
+        api.getStations(),
+      ]);
 
-      if (!response.ok) {
-        throw new Error("Prediction request failed");
+      if (sumRes.status === "fulfilled") setSummary(sumRes.value);
+      if (weaRes.status === "fulfilled") setWeather(weaRes.value);
+      if (congRes.status === "fulfilled") setCongestionData(congRes.value);
+      if (liveRes.status === "fulfilled") {
+        setLiveData(liveRes.value.data || []);
+        if (liveRes.value.active_movement) setActiveMovement(liveRes.value.active_movement);
+      }
+      if (movRes.status === "fulfilled") {
+        setTrainMovements(movRes.value.data || []);
+        if (movRes.value.active_movement) setActiveMovement(movRes.value.active_movement);
+      }
+      if (dailyRes.status === "fulfilled") setNetworkDaily(dailyRes.value.data || []);
+      if (hourlyRes.status === "fulfilled") setNetworkHourly(hourlyRes.value.data || []);
+      if (topRes.status === "fulfilled") setTopStations(topRes.value.data || []);
+      if (lineRes.status === "fulfilled") setLineData(lineRes.value.data || []);
+      if (insRes.status === "fulfilled") setInsights(insRes.value.insights || []);
+      if (anoRes.status === "fulfilled") setAnomalies(anoRes.value.anomalies || []);
+      if (foreRes.status === "fulfilled") setForecast(foreRes.value.forecasts || []);
+
+      if (stRes.status === "fulfilled") {
+        setStationList(stRes.value);
+      } else {
+        throw new Error("Failed to load core data.");
       }
 
-      const data: PredictionResponse = await response.json();
-      setResult(data);
-    } catch {
-      setError(
-        "Unable to connect to MetroFlow API. Make sure the FastAPI server is running."
-      );
+      setLastUpdate(new Date());
+    } catch (e: unknown) {
+      console.error("Dashboard data load error:", e);
+      setError(e instanceof Error ? e.message : "Failed to load dashboard data. Please try again.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData();
+    const interval = window.setInterval(() => {
+      void loadData();
+    }, 60000); // 1 min auto refresh
+    return () => window.clearInterval(interval);
+  }, [loadData]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
-  const getCrowdClass = (level: string) => {
-    switch (level.toLowerCase()) {
-      case "very high":
-        return "crowd very-high";
-      case "high":
-        return "crowd high";
-      case "medium":
-        return "crowd medium";
-      default:
-        return "crowd low";
-    }
+  const handleSelectStation = (station: string) => {
+    setSelectedStation(station);
+    setActiveTab("Stations");
   };
 
-  const getCongestionBadgeClass = (level: string) => {
-    switch (level.toLowerCase()) {
-      case "critical":
-        return "crowd critical";
-      case "high":
-        return "crowd high";
-      case "medium":
-        return "crowd medium";
-      default:
-        return "crowd low";
-    }
-  };
-
-  const filteredStations = (congestionData?.stations || []).filter((item) => {
-    const matchesSearch = item.station
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const matchesFilter =
-      filterLevel === "ALL" ||
-      item.congestion_level.toUpperCase() === filterLevel;
-    return matchesSearch && matchesFilter;
+  const statusPieCounts = { low: 0, moderate: 0, high: 0, critical: 0 };
+  liveData.forEach((d) => {
+    statusPieCounts[d.status as keyof typeof statusPieCounts] = (statusPieCounts[d.status as keyof typeof statusPieCounts] || 0) + 1;
   });
+  const pieData = Object.entries(statusPieCounts)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => ({
+      name: k.charAt(0).toUpperCase() + k.slice(1),
+      value: v,
+      color: STATUS_COLOR[k],
+    }));
 
   return (
-    <main className="dashboard">
-      <header className="header">
-        <div>
-          <p className="eyebrow">AI-POWERED METRO INTELLIGENCE</p>
-          <h1>MetroFlow</h1>
-          <p className="subtitle">
-            Predictive crowd management and demand intelligence
-          </p>
-        </div>
-
-        <div className="status">
-          <span className="status-dot"></span>
-          API Ready
-        </div>
-      </header>
-
-      <section className="hero">
-        <div>
-          <h2>Metro Ridership Prediction</h2>
-          <p>
-            Predict next-hour station demand using historical ridership
-            patterns and operational features.
-          </p>
-        </div>
-      </section>
-
-      <section className="content-grid">
-        <div className="card input-card">
-        {analytics && (
-  <section className="mb-8">
-    <div className="mb-4">
-      <h2 className="text-2xl font-bold text-slate-800">
-        Metro Analytics
-      </h2>
-      <p className="text-slate-500">
-        Insights from Bengaluru Metro ridership data
-      </p>
-    </div>
-
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-      
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Total Ridership</p>
-        <p className="mt-2 text-3xl font-bold text-slate-800">
-          {analytics.total_ridership.toLocaleString()}
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Metro Stations</p>
-        <p className="mt-2 text-3xl font-bold text-slate-800">
-          {analytics.total_stations}
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Busiest Station</p>
-        <p className="mt-2 text-lg font-bold text-slate-800">
-          {analytics.busiest_station}
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Peak Hour</p>
-        <p className="mt-2 text-3xl font-bold text-slate-800">
-          {analytics.peak_hour}:00
-        </p>
-      </div>
-
-    </div>
-  </section>
-)}
-
-{weather && (
-  <section className="mb-8">
-    <div className="mb-4">
-      <h2 className="text-2xl font-bold text-slate-800">
-        Weather & Environmental Insights
-      </h2>
-      <p className="text-slate-500">
-        Bengaluru weather conditions during operational period
-      </p>
-    </div>
-
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Average Temperature</p>
-        <p className="mt-2 text-3xl font-bold text-slate-800">
-          {weather.average_temperature} °C
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Average Humidity</p>
-        <p className="mt-2 text-3xl font-bold text-slate-800">
-          {weather.average_humidity}%
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Total Rainfall</p>
-        <p className="mt-2 text-3xl font-bold text-slate-800">
-          {weather.total_rainfall} mm
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Average Wind Speed</p>
-        <p className="mt-2 text-3xl font-bold text-slate-800">
-          {weather.average_wind_speed} km/h
-        </p>
-      </div>
-    </div>
-  </section>
-)}
-          <h3>Prediction Input</h3>
-
-          <label>Metro Station</label>
-          <input
-            value={station}
-            onChange={(e) => setStation(e.target.value)}
-            placeholder="Enter station"
-          />
-
-          <label>Hour of Day</label>
-          <input
-            type="number"
-            min="0"
-            max="23"
-            value={hour}
-            onChange={(e) => setHour(Number(e.target.value))}
-          />
-
-          <label>Day of Week</label>
-          <select
-            value={dayOfWeek}
-            onChange={(e) => setDayOfWeek(Number(e.target.value))}
-          >
-            <option value={0}>Monday</option>
-            <option value={1}>Tuesday</option>
-            <option value={2}>Wednesday</option>
-            <option value={3}>Thursday</option>
-            <option value={4}>Friday</option>
-            <option value={5}>Saturday</option>
-            <option value={6}>Sunday</option>
-          </select>
-
-          <label>Current Ridership</label>
-          <input
-            type="number"
-            min="0"
-            value={currentRidership}
-            onChange={(e) => setCurrentRidership(Number(e.target.value))}
-          />
-
-          <button onClick={predictRidership} disabled={loading}>
-            {loading ? "Predicting..." : "Predict Next-Hour Demand"}
-          </button>
-
-          {error && <p className="error">{error}</p>}
-        </div>
-
-        <div className="card results-card">
-          <h3>Prediction Results</h3>
-
-          {!result && !loading && (
-            <div className="empty-state">
-              <div className="empty-icon">🚇</div>
-              <p>Enter station information and run a prediction.</p>
+    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+      <header className="border-b border-gray-800/80 bg-gray-900/90 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-violet-600/90 p-2.5 shadow-lg shadow-violet-600/30">
+              <Train size={22} className="text-white" />
             </div>
-          )}
-
-          {loading && (
-            <div className="empty-state">
-              <div className="empty-icon">🤖</div>
-              <p>AI model is generating prediction...</p>
-            </div>
-          )}
-
-          {result && (
-            <>
-              <div className="result-top">
-                <div>
-                  <p className="result-label">STATION</p>
-                  <h2>{result.station}</h2>
-                </div>
-
-                <div className={getCrowdClass(result.crowd_level)}>
-                  {result.crowd_level}
-                </div>
-              </div>
-
-              <div className="metrics">
-                <div className="metric">
-                  <span>Current Ridership</span>
-                  <strong>{result.current_ridership}</strong>
-                </div>
-
-                <div className="metric">
-                  <span>Predicted Next Hour</span>
-                  <strong>
-                    {Math.round(result.predicted_next_hour_ridership)}
-                  </strong>
-                </div>
-
-                <div className="metric">
-                  <span>Prediction Hour</span>
-                  <strong>{result.hour}:00</strong>
-                </div>
-              </div>
-
-              <div className="recommendation">
-                <p>OPERATIONAL RECOMMENDATION</p>
-                <h4>{result.recommendation}</h4>
-              </div>
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* Station Crowd Monitoring Section */}
-      <section className="congestion-section">
-        <div className="card">
-          <div className="congestion-header">
             <div>
-              <p className="eyebrow">NETWORK-WIDE OPERATIONS</p>
-              <h2 className="text-2xl font-bold text-slate-800">
-                Station Crowd Monitoring
-              </h2>
-              <p className="text-slate-500">
-                {congestionData
-                  ? `Active passenger density tracking across ${congestionData.total_stations} stations (Operational Hour: ${congestionData.hour}:00, Date: ${congestionData.date})`
-                  : "Live passenger density tracking across Bengaluru Metro stations"}
-              </p>
-            </div>
-
-            <div className="congestion-controls">
-              <input
-                type="text"
-                className="search-input"
-                placeholder="Search station..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-
-              <div className="filter-group">
-                {["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map((level) => (
-                  <button
-                    key={level}
-                    className={`filter-btn ${filterLevel === level ? "active" : ""}`}
-                    onClick={() => setFilterLevel(level)}
-                  >
-                    {level}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-extrabold text-white tracking-tight">MetroFlow</h1>
+                <span className="text-[10px] bg-violet-500/20 text-violet-300 font-semibold px-2 py-0.5 rounded-full border border-violet-500/30">
+                  AI v2.0
+                </span>
               </div>
+              <p className="text-xs text-gray-400">
+                Predictive Public Transit Intelligence & Crowd Optimization
+              </p>
             </div>
           </div>
 
-          {congestionLoading && (
-            <div className="empty-state">
-              <div className="empty-icon">⏳</div>
-              <p>Loading real-time station congestion data...</p>
+          <div className="flex items-center gap-3">
+            {activeMovement && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs font-semibold">
+                <Train size={13} />
+                <span>Train {activeMovement.train_id} ({activeMovement.movement_time}) • Next: {activeMovement.next_train_in_minutes}m</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+              <span className="live-dot" />
+              <span className="ml-2">Live Train Movement Active</span>
             </div>
-          )}
 
-          {congestionError && <p className="error">{congestionError}</p>}
+            {lastUpdate && (
+              <span className="text-xs text-gray-500 hidden md:inline">
+                Synced {lastUpdate.toLocaleTimeString("en-IN")}
+              </span>
+            )}
 
-          {!congestionLoading && congestionData && (
-            <div className="station-cards-grid">
-              {filteredStations.map((item) => (
-                <div
-                  key={item.station}
-                  className={`station-item-card border-${item.congestion_level.toLowerCase()}`}
-                  onClick={() => setStation(item.station)}
-                  style={{ cursor: "pointer" }}
-                  title="Click to select this station in prediction form"
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold text-slate-800 text-base leading-snug">
-                      {item.station}
-                    </h4>
-                    <span className={getCongestionBadgeClass(item.congestion_level)}>
-                      {item.congestion_level}
-                    </span>
-                  </div>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 px-3.5 py-1.5 rounded-lg transition-all font-medium disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
 
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-sm">
-                    <span className="text-slate-500">Current Ridership</span>
-                    <strong className="text-slate-800 text-base">
-                      {item.ridership.toLocaleString()}
-                    </strong>
-                  </div>
-                </div>
-              ))}
-              {filteredStations.length === 0 && (
-                <div className="col-span-full py-8 text-center text-slate-500">
-                  No stations match the selected filter.
-                </div>
+        {/* Tab Navigation */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-2">
+          <div className="flex items-center gap-6 border-b border-gray-800">
+            {tabs.map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`pb-3 text-sm font-semibold transition-colors relative ${activeTab === tab ? 'text-violet-400' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                {tab}
+                {activeTab === tab && (
+                  <span className="absolute bottom-0 left-0 w-full h-0.5 bg-violet-500 rounded-t-full"></span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 flex-1 w-full">
+        {error && (
+          <ErrorBanner message={error} onRetry={loadData} />
+        )}
+
+        {/* --- Dashboard Tab --- */}
+        {activeTab === "Dashboard" && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {loading ? (
+                Array(4).fill(0).map((_, i) => <Skeleton key={i} h={100} />)
+              ) : (
+                <>
+                  <StatCard label="Total Network Ridership" value={summary ? summary.total_ridership.toLocaleString() : "-"} icon={Users} color={PURPLE} sub="Live 2026 Real-Time Flow • 15-Min Intervals" />
+                  <StatCard label="Monitored Stations" value={summary ? summary.total_stations : "-"} icon={Train} color={BLUE} sub="Purple & Green Line" />
+                  <StatCard label="Busiest Terminal" value={summary ? summary.busiest_station.replace("Nadaprabhu Kempegowda Station, ", "") : "-"} icon={Activity} color={ORANGE} sub="Highest footfall" />
+                  <StatCard label="Peak Operational Hour" value={summary ? `${summary.peak_hour}:00 hrs` : "-"} icon={Clock} color={RED} sub="Commuter rush window" />
+                </>
               )}
             </div>
-          )}
-        </div>
-      </section>
 
-      <footer>
-        MetroFlow • AI-powered public transit intelligence platform
+            <WeatherPanel weather={weather} loading={loading} />
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-7">
+                <CongestionMatrix congestionData={congestionData} onSelectStation={handleSelectStation} />
+              </div>
+              <div className="lg:col-span-5">
+                <CrowdDistributionChart pieData={pieData} />
+              </div>
+            </div>
+            
+            <HeatmapChart />
+          </div>
+        )}
+
+        {/* --- Analytics Tab --- */}
+        {activeTab === "Analytics" && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <NetworkDailyChart data={networkDaily} trainMovements={trainMovements} activeMovement={activeMovement} loading={loading} />
+              <NetworkHourlyChart data={networkHourly} loading={loading} />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <LineComparisonChart data={lineData} loading={loading} />
+              <TopStationsChart data={topStations} loading={loading} />
+            </div>
+          </div>
+        )}
+
+        {/* --- Stations Tab --- */}
+        {activeTab === "Stations" && (
+          <div className="space-y-6">
+            <StationManager onStationChange={setSelectedStation} selectedStation={selectedStation} />
+            <StationDeepDive stationList={stationList} selectedStation={selectedStation} onStationChange={setSelectedStation} />
+          </div>
+        )}
+
+        {/* --- AI Intelligence Tab --- */}
+        {activeTab === "AI Intelligence" && (
+          <div className="space-y-6">
+            <PredictionPanel stationList={stationList} station={selectedStation} />
+            <div className="grid grid-cols-1 gap-6">
+              <ForecastChart data={forecast} loading={loading} />
+            </div>
+            <PeakAnalysis />
+            <InsightsPanel insights={insights} anomalies={anomalies} />
+          </div>
+        )}
+      </main>
+
+      <footer className="border-t border-gray-800/60 py-6 bg-gray-950 mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-gray-400">MetroFlow</span>
+            <span>• Predictive Public Transit Intelligence Platform</span>
+          </div>
+          <p>Bengaluru Namma Metro • 2026 Live Train Movement Engine • FastAPI & Next.js</p>
+        </div>
       </footer>
-    </main>
+    </div>
   );
 }

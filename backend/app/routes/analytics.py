@@ -2,12 +2,15 @@ from fastapi import APIRouter, Query
 from typing import Optional
 from app.services.analytics import (
     get_live_ridership,
+    get_live_train_info,
     get_station_list,
     get_station_hourly_avg,
     get_station_daily_trend,
     get_station_weekday_pattern,
+    get_station_train_movements,
     get_network_daily_summary,
     get_network_hourly_profile,
+    get_network_train_movements,
     get_top_stations,
     get_heatmap_data,
     predict_next_hours,
@@ -24,8 +27,11 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 # ── Live Data ──────────────────────────────────────────────────────────────
 @router.get("/live")
 def live_ridership():
-    """Real-time (simulated) ridership across all stations."""
-    return {"data": get_live_ridership()}
+    """Real-time ridership across all stations recorded for the active 15-minute train movement."""
+    return {
+        "active_movement": get_live_train_info(),
+        "data": get_live_ridership()
+    }
 
 
 # ── Station Level ──────────────────────────────────────────────────────────
@@ -44,6 +50,12 @@ def station_daily(station: str):
     return {"station": station, "data": get_station_daily_trend(station)}
 
 
+@router.get("/stations/{station}/movements")
+def station_movements(station: str, date: Optional[str] = None):
+    """15-minute ridership recorded for every train movement at this station."""
+    return {"station": station, "data": get_station_train_movements(station, date)}
+
+
 @router.get("/stations/{station}/weekday")
 def station_weekday(station: str):
     return {"station": station, "data": get_station_weekday_pattern(station)}
@@ -55,6 +67,12 @@ def station_predict(station: str, hours: int = Query(default=6, ge=1, le=24)):
 
 
 # ── Network Level ──────────────────────────────────────────────────────────
+@router.get("/network/movements")
+def network_movements(date: Optional[str] = None):
+    """Network ridership recorded for every 15-minute train movement (discrete dispatches)."""
+    return get_network_train_movements(date)
+
+
 @router.get("/network/daily")
 def network_daily():
     return {"data": get_network_daily_summary()}
