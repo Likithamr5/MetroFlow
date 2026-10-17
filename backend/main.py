@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException
+import asyncio
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from pathlib import Path
@@ -9,10 +10,14 @@ import pandas as pd
 import numpy as np
 from pydantic import BaseModel, Field
 
-from app.database import Base, engine
+from app.database import Base, engine, SessionLocal
 from app.routes.station import router as station_router
 from app.routes.analytics import router as analytics_router
 from app.services.station_seed import seed_stations
+from app.services.station_simulator import (
+    generate_station_snapshot,
+    get_station_today_history_and_forecast,
+)
 
 # ── Helper to resolve project files across varied execution paths ─────────────
 def resolve_file(*relative_path_segments: str) -> Path:
@@ -91,14 +96,20 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event():
-    # Attempt column auto-migration if running on PostgreSQL
     try:
-        if str(engine.url).startswith("postgresql"):
-            with engine.connect() as conn:
+        with engine.connect() as conn:
+            if str(engine.url).startswith("postgresql"):
                 conn.execute(text("ALTER TABLE stations ADD COLUMN IF NOT EXISTS line VARCHAR(100);"))
                 conn.execute(text("ALTER TABLE stations ADD COLUMN IF NOT EXISTS is_interchange BOOLEAN DEFAULT FALSE;"))
+                conn.execute(text("ALTER TABLE stations ADD COLUMN IF NOT EXISTS ridership INTEGER DEFAULT 0;"))
                 conn.execute(text("ALTER TABLE stations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();"))
                 conn.commit()
+            elif str(engine.url).startswith("sqlite"):
+                try:
+                    conn.execute(text("ALTER TABLE stations ADD COLUMN ridership INTEGER DEFAULT 0;"))
+                    conn.commit()
+                except Exception:
+                    pass
     except Exception as e:
         print(f"Note: Column migration check passed/skipped: {e}")
 
@@ -386,6 +397,35 @@ def get_weather_summary():
 @app.get("/analytics/congestion")
 def get_analytics_congestion(hour: Optional[int] = None, date: Optional[str] = None):
     return get_station_congestion(hour=hour, date=date)
+
+
+# ── WebSocket Real-Time Station Stream ────────────────────────────────────────
+@app.websocket("/ws/station/{station_id}")
+async def websocket_station_stream(websocket: WebSocket, station_id: str):
+    await websocket.accept()
+    try:
+        while True:
+            with SessionLocal() as db:
+                snapshot = generate_station_snapshot(station_id, db)
+            await websocket.send_json(snapshot)
+            await asyncio.sleep(2)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"WebSocket station {station_id} connection terminated: {e}")
+
+
+# ── REST Footfall History & Forecast ──────────────────────────────────────────
+@app.get("/stations/{station_id}/history-forecast")
+def get_station_history_forecast_route(station_id: str):
+    with SessionLocal() as db:
+        return get_station_today_history_and_forecast(station_id, db)
+
+
+@app.get("/stations/{station_id}/footfall")
+def get_station_footfall_route(station_id: str):
+    with SessionLocal() as db:
+        return get_station_today_history_and_forecast(station_id, db)
 
 
 # Include modular routers at bottom so specific top-level routes match first

@@ -15,6 +15,7 @@ class Station(Base):
     longitude = Column(Float, nullable=True)
 
     capacity = Column(Integer, nullable=False, default=5000)
+    ridership = Column(Integer, nullable=True, default=0)
     is_interchange = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

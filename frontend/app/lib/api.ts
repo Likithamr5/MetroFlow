@@ -1,4 +1,11 @@
-import { ActiveTrainMovement, Anomaly, Insight, PeakAnalysisData, TrainMovementPoint } from "./types";
+import {
+  ActiveTrainMovement,
+  Anomaly,
+  Insight,
+  PeakAnalysisData,
+  StationFootfallForecastResponse,
+  TrainMovementPoint,
+} from "./types";
 
 // API base URL
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -69,6 +76,7 @@ export interface StationCreate {
   latitude?: number | null;
   longitude?: number | null;
   capacity: number;
+  ridership?: number | null;
   is_interchange: boolean;
 }
 
@@ -77,6 +85,7 @@ export interface StationResponse extends StationCreate {
   line: string | null;
   latitude: number | null;
   longitude: number | null;
+  ridership?: number | null;
 }
 
 export interface StationUpdate {
@@ -86,6 +95,7 @@ export interface StationUpdate {
   latitude?: number | null;
   longitude?: number | null;
   capacity?: number;
+  ridership?: number | null;
   is_interchange?: boolean;
 }
 
@@ -240,6 +250,10 @@ export const api = {
     fetchAPI<{ anomalies: Anomaly[] }>(`/analytics/ai/anomalies${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   getInsights: (): Promise<{ insights: Insight[] }> => fetchAPI<{ insights: Insight[] }>("/analytics/ai/insights"),
   getForecast: (): Promise<ForecastResponse> => fetchAPI<ForecastResponse>("/analytics/ai/forecast"),
+
+  // Real-time Station Footfall & Forecast
+  getStationFootfallForecast: (stationId: string | number): Promise<StationFootfallForecastResponse> =>
+    fetchAPI<StationFootfallForecastResponse>(`/stations/${encodeURIComponent(stationId)}/history-forecast`),
 
   // Database Station CRUD
   getStationsFromDB: (): Promise<StationResponse[]> => fetchAPI<StationResponse[]>("/stations"),

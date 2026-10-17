@@ -28,8 +28,11 @@ export default function TopStationsChart({ data, loading }: { data: TopStationPo
               type="category"
               dataKey="station"
               tick={{ fill: "#d1d5db", fontSize: 10 }}
-              tickFormatter={(s) => (s.length > 20 ? s.slice(0, 20) + "…" : s)}
-              width={130}
+              tickFormatter={(s) => {
+                const str = String(s || "");
+                return str.length > 22 ? str.slice(0, 20) + "…" : str;
+              }}
+              width={140}
             />
             <Tooltip content={<DarkTooltip />} />
             <Bar

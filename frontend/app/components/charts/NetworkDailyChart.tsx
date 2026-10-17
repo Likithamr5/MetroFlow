@@ -177,7 +177,7 @@ export default function NetworkDailyChart({
             <XAxis
               dataKey="date"
               tick={{ fill: "#6b7280", fontSize: 11 }}
-              tickFormatter={(v) => v.slice(5)}
+              tickFormatter={(v) => (typeof v === "string" && v.length >= 5 ? v.slice(5) : String(v || ""))}
               interval={6}
             />
             <YAxis

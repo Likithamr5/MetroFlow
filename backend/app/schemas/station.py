@@ -10,6 +10,7 @@ class StationCreate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     capacity: int = 5000
+    ridership: Optional[int] = 0
     is_interchange: bool = False
 
 
@@ -21,6 +22,7 @@ class StationResponse(BaseModel):
     latitude: Optional[float]
     longitude: Optional[float]
     capacity: int
+    ridership: Optional[int] = 0
     is_interchange: bool
 
     class Config:
@@ -34,6 +36,7 @@ class StationUpdate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     capacity: Optional[int] = None
+    ridership: Optional[int] = None
     is_interchange: Optional[bool] = None
 
     class Config:

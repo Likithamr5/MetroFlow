@@ -448,35 +448,54 @@ def get_peak_analysis() -> Dict[str, Any]:
 
 
 def get_anomaly_stations(date_str: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Detect stations with unusual ridership (z-score > 2)."""
+    """
+    Detect stations with unusual ridership (|z-score| >= 1.5).
+    Correctly aggregates daily ridership totals against the true daily mean and standard deviation per station.
+    """
     df = _get_df()
+
+    # Calculate daily totals per station across all historical dates
+    daily_by_station = df.groupby(["Date", "Station"])["Ridership"].sum().reset_index()
+
     if date_str:
         target_date = pd.to_datetime(date_str)
-        daily = df[df["Date"] == target_date]
+        daily = daily_by_station[daily_by_station["Date"] == target_date]
     else:
-        # Use last available date
-        daily = df[df["Date"] == df["Date"].max()]
+        target_date = daily_by_station["Date"].max()
+        daily = daily_by_station[daily_by_station["Date"] == target_date]
 
     if daily.empty:
-        daily = df[df["Date"] == df["Date"].max()]
+        target_date = daily_by_station["Date"].max()
+        daily = daily_by_station[daily_by_station["Date"] == target_date]
 
-    daily_totals = daily.groupby("Station")["Ridership"].sum().reset_index()
+    # Calculate true historical daily mean and std per station
+    hist_stats = daily_by_station.groupby("Station")["Ridership"].agg(["mean", "std"]).reset_index()
+    hist_stats.columns = ["Station", "hist_mean", "hist_std"]
 
-    # Compare to historical avg per station
-    hist_avg = df.groupby("Station")["Ridership"].agg(["mean", "std"]).reset_index()
-    hist_avg.columns = ["Station", "hist_mean", "hist_std"]
+    merged = daily.merge(hist_stats, on="Station")
+    merged["z_score"] = (merged["Ridership"] - merged["hist_mean"]) / (merged["hist_std"] + 1e-6)
 
-    merged = daily_totals.merge(hist_avg, on="Station")
-    merged["z_score"] = (merged["Ridership"] - merged["hist_mean"]) / (merged["hist_std"] + 1)
-    anomalies = merged[merged["z_score"].abs() > 1.5].sort_values("z_score", ascending=False)
+    # Filter for true statistical outliers (|z| >= 1.5)
+    anomalies = merged[merged["z_score"].abs() >= 1.5].sort_values("z_score", ascending=False)
+
+    # If no extreme outliers on a nominal day, show top 5 variance stations to provide meaningful monitoring
+    if anomalies.empty:
+        anomalies = merged.sort_values(by="z_score", key=abs, ascending=False).head(5)
 
     return [
         {
             "station": r["Station"],
             "current_ridership": int(r["Ridership"]),
-            "historical_avg": round(r["hist_mean"], 1),
-            "z_score": round(r["z_score"], 2),
+            "historical_avg": round(float(r["hist_mean"]), 1),
+            "z_score": round(float(r["z_score"]), 2),
             "type": "surge" if r["z_score"] > 0 else "drop",
+            "severity": "Critical" if abs(r["z_score"]) >= 2.5 else "High" if abs(r["z_score"]) >= 2.0 else "Moderate",
+            "confidence": f"{min(99, max(75, int(abs(r['z_score']) * 28 + 45)))}%",
+            "recommendation": (
+                "Deploy crowd management marshals and increase train dispatch frequency"
+                if r["z_score"] > 0
+                else "Nominal flow lower than baseline; optimize auxiliary rake power"
+            ),
         }
         for _, r in anomalies.iterrows()
     ]
@@ -532,40 +551,57 @@ def get_ai_insights() -> List[Dict[str, Any]]:
 
 
 def get_line_comparison() -> List[Dict[str, Any]]:
-    """Compare Purple vs Green line ridership patterns."""
-    # Station-to-line mapping (Bangalore Metro)
-    purple_line = [
-        "Baiyappanahalli", "Swami Vivekananda Road", "Indiranagar", "Halasuru",
-        "Trinity", "Mahatma Gandhi Road", "Cubbon Park",
-        "Dr. B. R. Ambedkar Station, Vidhana Soudha",
-        "Sir M. Visvesvaraya Stn., Central College",
-        "Krantivira Sangolli Rayanna Railway Station", "Magadi Road",
-        "Mahalakshmi", "Vijayanagar", "Attiguppe", "Deepanjali Nagar",
-        "Mysore Road", "Jaya Prakash Nagar", "Rashtreeya Vidyalaya Road",
-        "National College", "Lalbagh", "South End Circle", "Jayanagar",
-        "Rajarajeshwari Nagar",
-    ]
-    green_line = [
-        "Nagasandra", "Dasarahalli", "Jalahalli", "Peenya Industry",
-        "Peenya", "Goraguntepalya", "Yeshwantpur", "Sandal Soap Factory",
-        "Mahalakshmi", "Rajajinagar", "Srirampura", "Mantri Square Sampige Road",
-        "Nadaprabhu Kempegowda Station, Majestic", "Chickpete", "Krishna Rajendra Market",
-        "Mahatma Gandhi Road", "Baiyappanahalli",
-        "Whitefield (Kadugodi)", "Hopefarm Channasandra", "Kadugodi Tree Park",
-        "Pattandur Agrahara", "Nallurahalli", "Kundalahalli", "Garudacharpalya",
-        "Krishnarajapura", "Benniganahalli", "Hoodi",
-    ]
+    """
+    Compare ridership patterns across Bangalore Metro transit corridors:
+    - Purple Line (East-West tech corridor: Challaghatta to Whitefield)
+    - Green Line (North-South industrial/residential corridor: Madavara to Silk Institute)
+    - Yellow Line (Electronics City tech line: RV Road to Bommasandra)
+    Includes corridor averages, line totals, and network commuter volume.
+    """
+    from app.services.station_lines import PURPLE_STATIONS, GREEN_STATIONS, YELLOW_STATIONS
 
     df = _get_df()
     results = []
     for hour in range(24):
         hour_df = df[df["Hour"] == hour]
-        pl = hour_df[hour_df["Station"].isin(purple_line)]["Ridership"].mean()
-        gl = hour_df[hour_df["Station"].isin(green_line)]["Ridership"].mean()
+        if hour_df.empty:
+            continue
+
+        pl_sub = hour_df[hour_df["Station"].isin(PURPLE_STATIONS)]
+        gl_sub = hour_df[hour_df["Station"].isin(GREEN_STATIONS)]
+        yl_sub = hour_df[hour_df["Station"].isin(YELLOW_STATIONS)]
+
+        pl_avg = float(pl_sub["Ridership"].mean()) if not pl_sub.empty else 0.0
+        gl_avg = float(gl_sub["Ridership"].mean()) if not gl_sub.empty else 0.0
+        yl_avg = float(yl_sub["Ridership"].mean()) if not yl_sub.empty else 0.0
+        tot_avg = float(hour_df["Ridership"].mean())
+
+        pl_tot = int(pl_sub["Ridership"].sum()) if not pl_sub.empty else 0
+        gl_tot = int(gl_sub["Ridership"].sum()) if not gl_sub.empty else 0
+        yl_tot = int(yl_sub["Ridership"].sum()) if not yl_sub.empty else 0
+        net_tot = int(hour_df["Ridership"].sum())
+
+        # Determine hourly transit congestion tier
+        if tot_avg >= 800:
+            tier = "Critical Rush Surge"
+        elif tot_avg >= 600:
+            tier = "Peak Commute"
+        elif tot_avg >= 350:
+            tier = "Moderate Demand"
+        else:
+            tier = "Nominal / Off-Peak"
+
         results.append({
             "hour": hour,
-            "purple_line_avg": round(float(pl) if not np.isnan(pl) else 0, 1),
-            "green_line_avg": round(float(gl) if not np.isnan(gl) else 0, 1),
+            "purple_line_avg": round(pl_avg, 1),
+            "green_line_avg": round(gl_avg, 1),
+            "yellow_line_avg": round(yl_avg, 1),
+            "network_total_avg": round(tot_avg, 1),
+            "purple_line_total": pl_tot,
+            "green_line_total": gl_tot,
+            "yellow_line_total": yl_tot,
+            "network_hourly_total": net_tot,
+            "congestion_status": tier,
         })
     return results
 

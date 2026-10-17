@@ -18,13 +18,16 @@ export default function ForecastChart({ data, loading }: { data: ForecastPoint[]
         subtitle="Projected network ridership trend for the next full operational cycle"
       />
       {loading ? (
-        <Skeleton h={180} />
+        <Skeleton h={240} />
       ) : (
-        <ResponsiveContainer width="100%" height={180}>
+        <ResponsiveContainer width="100%" height={240}>
           <AreaChart data={data} margin={{ left: -10, right: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-            <XAxis dataKey="datetime" tick={{ fill: "#6b7280", fontSize: 10 }} />
-            <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} />
+            <XAxis dataKey="datetime" tick={{ fill: "#9ca3af", fontSize: 11 }} />
+            <YAxis
+              tick={{ fill: "#9ca3af", fontSize: 11 }}
+              tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`)}
+            />
             <Tooltip content={<DarkTooltip />} />
             <Area
               type="monotone"

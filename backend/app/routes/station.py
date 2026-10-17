@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.station import Station
 from app.schemas.station import StationCreate, StationResponse, StationUpdate
+from app.services.station_simulator import get_station_today_history_and_forecast
 
 
 router = APIRouter(
@@ -21,6 +22,7 @@ def create_station(station: StationCreate, db: Session = Depends(get_db)):
         latitude=station.latitude,
         longitude=station.longitude,
         capacity=station.capacity,
+        ridership=station.ridership or 0,
         is_interchange=station.is_interchange
     )
 
@@ -34,6 +36,16 @@ def create_station(station: StationCreate, db: Session = Depends(get_db)):
 def get_stations(db: Session = Depends(get_db)):
     stations = db.query(Station).all()
     return stations
+
+@router.get("/{station_id}/history-forecast")
+def get_station_history_forecast(station_id: str, db: Session = Depends(get_db)):
+    """Return today's footfall history (05:00 to current hour) and 3-hour forecast."""
+    return get_station_today_history_and_forecast(station_id, db)
+
+@router.get("/{station_id}/footfall")
+def get_station_footfall(station_id: str, db: Session = Depends(get_db)):
+    """Alias for footfall history and 3-hour forecast."""
+    return get_station_today_history_and_forecast(station_id, db)
 
 @router.get("/{station_id}", response_model=StationResponse)
 def get_station(station_id: int, db: Session = Depends(get_db)):

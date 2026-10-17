@@ -1,5 +1,6 @@
 export const PURPLE = '#8b5cf6';
 export const GREEN = '#10b981';
+export const YELLOW = '#eab308';
 export const ORANGE = '#f59e0b';
 export const BLUE = '#3b82f6';
 export const RED = '#ef4444';

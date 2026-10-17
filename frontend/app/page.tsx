@@ -5,7 +5,6 @@ import { Train, RefreshCw, Users, Activity, Clock } from "lucide-react";
 import {
   api,
   AnalyticsSummary,
-  WeatherSummary,
   CongestionResponse,
 } from "./lib/api";
 import { PURPLE, BLUE, ORANGE, RED, STATUS_COLOR } from "./lib/constants";
@@ -17,27 +16,23 @@ import Skeleton from "./components/ui/Skeleton";
 import ErrorBanner from "./components/ui/ErrorBanner";
 
 // Chart Components
-import NetworkDailyChart from "./components/charts/NetworkDailyChart";
-import NetworkHourlyChart from "./components/charts/NetworkHourlyChart";
-import LineComparisonChart from "./components/charts/LineComparisonChart";
-import TopStationsChart from "./components/charts/TopStationsChart";
+import MasterNetworkAnalysisChart from "./components/charts/MasterNetworkAnalysisChart";
 import ForecastChart from "./components/charts/ForecastChart";
 import CrowdDistributionChart from "./components/charts/CrowdDistributionChart";
 import HeatmapChart from "./components/charts/HeatmapChart";
 
 // Dashboard Components
+import LiveStationDashboard from "./components/dashboard/LiveStationDashboard";
 import PredictionPanel from "./components/dashboard/PredictionPanel";
 import CongestionMatrix from "./components/dashboard/CongestionMatrix";
 import StationDeepDive from "./components/dashboard/StationDeepDive";
 import PeakAnalysis from "./components/dashboard/PeakAnalysis";
 import InsightsPanel from "./components/dashboard/InsightsPanel";
-import WeatherPanel from "./components/dashboard/WeatherPanel";
 import StationManager from "./components/dashboard/StationManager";
 
 export default function Home() {
   // Data States
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
-  const [weather, setWeather] = useState<WeatherSummary | null>(null);
   const [congestionData, setCongestionData] = useState<CongestionResponse | null>(null);
   const [liveData, setLiveData] = useState<StationRidershipPoint[]>([]);
   const [trainMovements, setTrainMovements] = useState<TrainMovementPoint[]>([]);
@@ -57,17 +52,16 @@ export default function Home() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   
-  // Navigation State
-  const [activeTab, setActiveTab] = useState("Dashboard");
+  // Navigation State - Live Station is featured prominently
+  const [activeTab, setActiveTab] = useState("Live Station");
   const [selectedStation, setSelectedStation] = useState<string>("");
-  const tabs = ["Dashboard", "Analytics", "Stations", "AI Intelligence"];
+  const tabs = ["Live Station", "Dashboard", "Analytics", "Stations", "AI Intelligence"];
 
   const loadData = useCallback(async () => {
     setError(null);
     try {
       const [
         sumRes,
-        weaRes,
         congRes,
         liveRes,
         movRes,
@@ -81,7 +75,6 @@ export default function Home() {
         stRes,
       ] = await Promise.allSettled([
         api.getAnalyticsSummary(),
-        api.getWeatherSummary(),
         api.getStationCongestion(),
         api.getLive(),
         api.getTrainMovements(),
@@ -96,7 +89,6 @@ export default function Home() {
       ]);
 
       if (sumRes.status === "fulfilled") setSummary(sumRes.value);
-      if (weaRes.status === "fulfilled") setWeather(weaRes.value);
       if (congRes.status === "fulfilled") setCongestionData(congRes.value);
       if (liveRes.status === "fulfilled") {
         setLiveData(liveRes.value.data || []);
@@ -116,6 +108,9 @@ export default function Home() {
 
       if (stRes.status === "fulfilled") {
         setStationList(stRes.value);
+        if (stRes.value.length > 0 && !selectedStation) {
+          setSelectedStation(stRes.value[0]);
+        }
       } else {
         throw new Error("Failed to load core data.");
       }
@@ -128,7 +123,7 @@ export default function Home() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedStation]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -146,7 +141,7 @@ export default function Home() {
 
   const handleSelectStation = (station: string) => {
     setSelectedStation(station);
-    setActiveTab("Stations");
+    setActiveTab("Live Station");
   };
 
   const statusPieCounts = { low: 0, moderate: 0, high: 0, critical: 0 };
@@ -219,7 +214,7 @@ export default function Home() {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`pb-3 text-sm font-semibold transition-colors relative ${activeTab === tab ? 'text-violet-400' : 'text-gray-400 hover:text-gray-200'}`}
+                className={`pb-3 text-sm font-semibold transition-colors relative cursor-pointer ${activeTab === tab ? 'text-violet-400' : 'text-gray-400 hover:text-gray-200'}`}
               >
                 {tab}
                 {activeTab === tab && (
@@ -234,6 +229,14 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 flex-1 w-full">
         {error && (
           <ErrorBanner message={error} onRetry={loadData} />
+        )}
+
+        {/* --- Live Station Tab --- */}
+        {activeTab === "Live Station" && (
+          <LiveStationDashboard
+            initialStation={selectedStation || (stationList[0] || "Attiguppe")}
+            stationList={stationList}
+          />
         )}
 
         {/* --- Dashboard Tab --- */}
@@ -252,8 +255,6 @@ export default function Home() {
               )}
             </div>
 
-            <WeatherPanel weather={weather} loading={loading} />
-
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-7">
                 <CongestionMatrix congestionData={congestionData} onSelectStation={handleSelectStation} />
@@ -267,24 +268,17 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- Analytics Tab --- */}
+        {/* --- Analytics Tab (Dedicated Single Master Analysis Graph) --- */}
         {activeTab === "Analytics" && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <NetworkDailyChart data={networkDaily} trainMovements={trainMovements} activeMovement={activeMovement} loading={loading} />
-              <NetworkHourlyChart data={networkHourly} loading={loading} />
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <LineComparisonChart data={lineData} loading={loading} />
-              <TopStationsChart data={topStations} loading={loading} />
-            </div>
+            <MasterNetworkAnalysisChart data={lineData} loading={loading} />
           </div>
         )}
 
         {/* --- Stations Tab --- */}
         {activeTab === "Stations" && (
           <div className="space-y-6">
-            <StationManager onStationChange={setSelectedStation} selectedStation={selectedStation} />
+            <StationManager onStationChange={setSelectedStation} selectedStation={selectedStation} congestionData={congestionData} />
             <StationDeepDive stationList={stationList} selectedStation={selectedStation} onStationChange={setSelectedStation} />
           </div>
         )}

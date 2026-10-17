@@ -25,10 +25,13 @@ export default function NetworkHourlyChart({ data, loading }: { data: HourlyRide
             <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
             <XAxis
               dataKey="hour"
-              tick={{ fill: "#6b7280", fontSize: 11 }}
-              tickFormatter={(v) => `${v}h`}
+              tick={{ fill: "#9ca3af", fontSize: 11 }}
+              tickFormatter={(v) => `${String(v).padStart(2, "0")}:00`}
             />
-            <YAxis tick={{ fill: "#6b7280", fontSize: 11 }} />
+            <YAxis
+              tick={{ fill: "#9ca3af", fontSize: 11 }}
+              tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`)}
+            />
             <Tooltip content={<DarkTooltip />} />
             <Bar dataKey="avg_ridership" name="Avg Riders" radius={[4, 4, 0, 0]}>
               {data.map((entry, i) => (
