@@ -209,3 +209,50 @@ def classify(name: str) -> Tuple[str, bool]:
 def is_terminal_station(name: str) -> bool:
     """Return whether the station is an operational line terminus."""
     return str(name).strip() in TERMINALS
+
+
+def get_station_corridor(name: str) -> str:
+    """Return the geographical and commercial Bangalore transit corridor."""
+    norm = str(name).strip().casefold()
+    if any(k in norm for k in ["whitefield", "kadugodi", "hoodi", "kundalahalli", "garudacharpalya", "seetharam", "nallurahalli", "channasandra", "hopefarm"]):
+        return "East Bengaluru IT Corridor (Whitefield / Tech Parks)"
+    if any(k in norm for k in ["indiranagar", "baiyappanahalli", "benniganahalli", "krishnarajapura", "halasuru", "trinity"]):
+        return "East-Central Transit & Commercial Corridor"
+    if any(k in norm for k in ["vidhana", "cubbon", "mg road", "mahatma gandhi", "central college", "majestic", "kempegowda", "railway"]):
+        return "Central CBD, Heritage & Administrative Corridor"
+    if any(k in norm for k in ["attiguppe", "vijayanagar", "hosahalli", "magadi", "deepanjali", "mysore", "mysuru", "kengeri", "challaghatta", "rajarajeshwari", "pattanagere", "jnanabharathi"]):
+        return "West Bengaluru & Mysore Road Radial Corridor"
+    if any(k in norm for k in ["peenya", "dasarahalli", "jalahalli", "nagasandra", "madavara", "chikkabidarakallu", "goraguntepalya", "yeshwanthpur", "yeshwantpur", "sandal soap", "rajajinagar", "kuvempu", "srirampura", "sampige"]):
+        return "North Bengaluru Industrial & Transit Corridor"
+    if any(k in norm for k in ["chickpete", "kr market", "krishna rajendra", "national college", "lalbagh"]):
+        return "Historic Bengaluru & Market Heritage Corridor"
+    if any(k in norm for k in ["jayanagar", "south end", "rv road", "rashtreeya vidyalaya", "banashankari", "jp nagar", "jaya prakash", "yelachenahalli", "konanakunte", "doddakallasandra", "vajarahalli", "thalaghattapura", "silk institute"]):
+        return "South Bengaluru Residential & Cultural Corridor"
+    if any(k in norm for k in ["electronic city", "silk board", "jayadeva", "btm", "bommanahalli", "hongasandra", "kudlu", "singasandra", "hosa road", "konappana", "huskur", "hebbagodi", "bommasandra", "ragigudda"]):
+        return "Electronic City Tech & Manufacturing Corridor"
+    return "Bengaluru Metro Urban Network Corridor"
+
+
+def get_station_capacity(name: str) -> int:
+    """Return nominal hourly design capacity for Bangalore metro station."""
+    norm = str(name).strip().casefold()
+    if any(k in norm for k in ["majestic", "kempegowda"]):
+        return 12000
+    if any(k in norm for k in ["whitefield", "indiranagar", "mg road", "yeshwanthpur", "krishnarajapura", "silk board"]):
+        return 8000
+    if any(k in norm for k in ["rv road", "jayadeva", "baiyappanahalli", "banashankari", "jayanagar", "electronic city", "cubbon"]):
+        return 6500
+    return 5000
+
+
+def get_bangalore_station_details(name: str) -> dict:
+    """Consolidated Bangalore Metro station intelligence metadata."""
+    line, is_interchange = classify(name)
+    return {
+        "station": name,
+        "line": line,
+        "is_interchange": is_interchange,
+        "is_terminal": is_terminal_station(name),
+        "corridor": get_station_corridor(name),
+        "design_capacity": get_station_capacity(name),
+    }

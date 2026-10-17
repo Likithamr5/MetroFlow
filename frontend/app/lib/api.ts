@@ -31,11 +31,20 @@ export interface PredictionPayload {
 
 export interface PredictionResult {
   station: string;
+  line?: string;
+  is_interchange?: boolean;
+  is_terminal?: boolean;
+  corridor?: string;
+  capacity?: number;
+  capacity_utilization_pct?: number;
   hour: number;
   current_ridership: number;
   predicted_next_hour_ridership: number;
   crowd_level: string;
   recommendation: string;
+  headway_directive?: string;
+  platform_action?: string;
+  passenger_advisory?: string;
 }
 
 export interface AnalyticsSummary {

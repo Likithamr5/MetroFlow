@@ -8,7 +8,7 @@ export default function Loading() {
         </div>
       </div>
       <h2 className="mt-4 text-xl font-bold text-white tracking-widest">METROFLOW</h2>
-      <p className="text-sm text-gray-500 mt-1">Initializing AI Intelligence...</p>
+      <p className="text-sm text-gray-500 mt-1">Initializing Bangalore Metro Transit Intelligence...</p>
     </div>
   );
 }

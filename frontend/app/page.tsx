@@ -55,7 +55,7 @@ export default function Home() {
   // Navigation State - Live Station is featured prominently
   const [activeTab, setActiveTab] = useState("Live Station");
   const [selectedStation, setSelectedStation] = useState<string>("");
-  const tabs = ["Live Station", "Dashboard", "Analytics", "Stations", "AI Intelligence"];
+  const tabs = ["Live Station", "Dashboard", "Analytics", "Stations", "Current Metro Station in Bangalore"];
 
   const loadData = useCallback(async () => {
     setError(null);
@@ -283,8 +283,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- AI Intelligence Tab --- */}
-        {activeTab === "AI Intelligence" && (
+        {/* --- Current Metro Station in Bangalore (AI Transit Intelligence) Tab --- */}
+        {(activeTab === "Current Metro Station in Bangalore" || activeTab === "AI Intelligence") && (
           <div className="space-y-6">
             <PredictionPanel stationList={stationList} station={selectedStation} />
             <div className="grid grid-cols-1 gap-6">

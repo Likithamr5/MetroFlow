@@ -14,6 +14,7 @@ from app.database import Base, engine, SessionLocal
 from app.routes.station import router as station_router
 from app.routes.analytics import router as analytics_router
 from app.services.station_seed import seed_stations
+from app.services.station_lines import get_bangalore_station_details
 from app.services.station_simulator import (
     generate_station_snapshot,
     get_station_today_history_and_forecast,
@@ -239,13 +240,52 @@ def predict_ridership(data: PredictionInput):
                 crowd_level = "Low"
                 recommendation = "Normal off-peak schedule."
 
+    # Enrich with Bangalore Metro transit intelligence
+    meta = get_bangalore_station_details(data.station)
+    line = meta["line"]
+    is_interchange = meta["is_interchange"]
+    is_terminal = meta["is_terminal"]
+    corridor = meta["corridor"]
+    capacity = meta["design_capacity"]
+    capacity_utilization_pct = round(min(100.0, (prediction_val / max(1, capacity)) * 100), 1)
+
+    if crowd_level in ("Very High", "High"):
+        if "Purple" in line:
+            headway_directive = "Inject 3.5-min short-loop headway between Baiyappanahalli & Majestic. Prepare turnaround rake at Challaghatta."
+        elif "Green" in line:
+            headway_directive = "Compress Green Line headway to 4.0 min. Regulate interchange connection at Majestic."
+        elif "Yellow" in line:
+            headway_directive = "Deploy 4.5-min interval for Electronic City IT corridor. Synchronize RV Road connection."
+        else:
+            headway_directive = "Compress line headway to 3.5 - 4.0 min and position reserve rake."
+
+        platform_action = "BMRCL Station Marshals deployed to Platforms 1 & 2. Gate pulsing active on AFC entry turnstiles."
+        passenger_advisory = "Heavy platform passenger surge. Commuters advised to board middle coaches or defer departure by 15 mins."
+    elif crowd_level == "Medium":
+        headway_directive = "Maintain standard 5-6 min operational headway with standby rake on readiness at depot."
+        platform_action = "Normal platform operations; monitor interchange transfer concourse flow."
+        passenger_advisory = "Moderate commuter volume; regular boarding protocol in effect."
+    else:
+        headway_directive = "Off-peak 8-10 min headway; coasting energy conservation mode active."
+        platform_action = "Standard station concourse flow; regular security monitoring."
+        passenger_advisory = "Optimal travel conditions with low dwell times and high seating availability."
+
     return {
         "station": data.station,
+        "line": line,
+        "is_interchange": is_interchange,
+        "is_terminal": is_terminal,
+        "corridor": corridor,
+        "capacity": capacity,
+        "capacity_utilization_pct": capacity_utilization_pct,
         "hour": data.hour,
         "current_ridership": round(data.current_ridership, 1),
         "predicted_next_hour_ridership": round(prediction_val, 2),
         "crowd_level": crowd_level,
         "recommendation": recommendation,
+        "headway_directive": headway_directive,
+        "platform_action": platform_action,
+        "passenger_advisory": passenger_advisory,
     }
 
 
@@ -426,6 +466,11 @@ def get_station_history_forecast_route(station_id: str):
 def get_station_footfall_route(station_id: str):
     with SessionLocal() as db:
         return get_station_today_history_and_forecast(station_id, db)
+
+
+@app.get("/stations/{station_id}/bangalore-metadata")
+def get_station_bangalore_metadata_route(station_id: str):
+    return get_bangalore_station_details(station_id)
 
 
 # Include modular routers at bottom so specific top-level routes match first
